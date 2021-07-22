@@ -1,4 +1,4 @@
-module gitlab.shalltry.com/paynicorn/go-sdk
+module github.com/Transsion-mios/paynicorn-sdk-golang
 
 go 1.16
 
