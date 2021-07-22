@@ -1,4 +1,4 @@
-package paynicornlogic
+package paynicorn
 
 import (
 	"crypto/md5"

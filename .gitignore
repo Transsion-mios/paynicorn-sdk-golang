@@ -1,3 +1,4 @@
 go.sum
 paynicorn-go-sdk.iml
 .idea
+.DS_Store
