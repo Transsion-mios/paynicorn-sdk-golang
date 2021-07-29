@@ -208,7 +208,7 @@ func QueryPayment(appKey string,merchantSecret string,request QueryPaymentReques
 
 	var buffer []byte
 	if response, err := client.Do(postRequest); err == nil {
-		if buffer, err = ioutil.ReadAll(response.Body); err != nil {
+		if buffer, err = ioutil.ReadAll(response.Body); err == nil {
 			rsp := ResponseBody{}
 			err = json.Unmarshal(buffer, &rsp)
 
@@ -242,7 +242,7 @@ func ReceivePostback(merchantSecret string,request PostbackRequest) *PostbackInf
 		c, err := base64.StdEncoding.DecodeString(request.Content)
 
 		if err == nil {
-			err = json.Unmarshal(c,response)
+			err = json.Unmarshal(c,&response)
 			if err == nil{
 				response.Verified = true
 				return &response
