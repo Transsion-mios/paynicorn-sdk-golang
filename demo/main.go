@@ -1,9 +1,10 @@
-package paynicorn
+package main
 
 import (
 	"fmt"
 	"github.com/Transsion-mios/paynicorn-sdk-golang"
 	"github.com/gin-gonic/gin"
+	"net/http"
 )
 
 func main() {
@@ -12,30 +13,47 @@ func main() {
 
 
 	//raise a payment request to PAYNICORN
-	cashierRequest := paynicorn.RaiseCashierRequest{}
-	cashierRequest.OrderId="PUT_YOUR_ORDER_ID_HERE"
-	cashierRequest.CountryCode="NG"
-	cashierRequest.Currency="NGN"
-	cashierRequest.Amount="10"
-	cashierRequest.CpFrontPage="PUT_YOUR_WEB_REDIRECT_URL_HERE"
-	cashierRequest.OrderDescription="TEST GOODS NAME"
-	cashierresponse,_ := paynicorn.RaiseCashierPayment(appkey,merchantkey,cashierRequest)
-	fmt.Println(cashierresponse)
+	request := paynicorn.InitPaymentRequest{}
+	request.OrderId="PUT_YOUR_ORDER_ID_HERE"
+	request.CountryCode="NG"
+	request.Currency="NGN"
+	request.Amount="10"
+	request.CpFrontPage="PUT_YOUR_WEB_REDIRECT_URL_HERE"
+	request.OrderDescription="TEST GOODS NAME"
+	response := paynicorn.InitPayment(appkey,merchantkey,request)
+	if response != nil{
+		fmt.Println(response)
+	}
+
 
 
 	//query a payment status from PAYNICORN
-	request := paynicorn.QueryTransactionRequest{}
-	request.OrderId=cashierRequest.OrderId
-	request.TxnType=paynicorn.PAYMENT
-	response := paynicorn.QueryPaymentStatus(appkey,merchantkey,request)
-	fmt.Println(response)
+	request1 := paynicorn.QueryPaymentRequest{}
+	request1.OrderId=request.OrderId
+	request1.TxnType=paynicorn.PAYMENT
+	response1 := paynicorn.QueryPayment(appkey,merchantkey,request1)
+	if response1 != nil{
+		fmt.Println(response1)
+	}
+
 
 
 	//receive a payment status postback from PAYNICORN
 	r := gin.Default()
 	r.POST("/postback", func(context *gin.Context) {
-		postbackresponse,_ := paynicorn.Postback(context,merchantkey)
-		fmt.Println(postbackresponse)
+
+		var req paynicorn.PostbackRequest
+		if err := context.BindJSON(&req); err != nil{
+			context.String(http.StatusInternalServerError,"")
+		}else{
+			postbackInfo := paynicorn.ReceivePostback(merchantkey,req)
+			if postbackInfo != nil && postbackInfo.Verified{
+				fmt.Println(postbackInfo)
+				context.String(http.StatusOK,"success_"+postbackInfo.TxnId)
+			}else{
+				context.String(http.StatusInternalServerError,"")
+			}
+		}
 
 	})
 	r.Run(":80")

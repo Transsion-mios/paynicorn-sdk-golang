@@ -5,8 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -51,7 +49,8 @@ type ResponseBody struct{
 }
 
 
-type PostbackResponse struct{
+type PostbackInfo struct{
+	Verified bool
 	TxnId string `json:"txnId"`
 	OrderId string `json:"orderId"`
 	Amount string `json:"amount"`
@@ -70,7 +69,7 @@ type PostbackRequest struct{
 /**
 query  transaction status request
  */
-type QueryTransactionRequest struct{
+type QueryPaymentRequest struct{
 	OrderId string `json:"orderId"`//MANDATORY unique transaction id generate by paynicorn.you can use it to query your transaction status or wait for a postback
 	TxnType  TxnTypeEnum `json:"txnType"`
 }
@@ -78,7 +77,7 @@ type QueryTransactionRequest struct{
 /**
 query  transaction status response
  */
-type QueryTransactionResponse struct{
+type QueryPaymentResponse struct{
 
 	Code	string    `json:"code"` // MANDATORY response code represent current request is success response or not refer to https://www.paynicorn.com/#/docs 6.5
 
@@ -94,7 +93,7 @@ type QueryTransactionResponse struct{
 /**
 cashier payment request model
 */
-type RaiseCashierRequest struct {
+type InitPaymentRequest struct {
 	Amount string `json:"amount"`//mandatory ,local currency for a country.the range of amount is depend on currency.refer to develop docs https://www.paynicorn.com/#/docs 6.1
 
 	CountryCode string `json:"countryCode"` //mandatory,country code define in iso 3166 alpha-2 code ，refer to develop docs https://www.paynicorn.com/#/docs 6.1
@@ -125,7 +124,7 @@ type RaiseCashierRequest struct {
 /**
 raise cashier response
 */
-type RaiseCashierResponse struct {
+type InitPaymentResponse struct {
 
 	Code	string    `json:"code"` // MANDATORY response code represent current request is success response or not refer to https://www.paynicorn.com/#/docs 6.5
 
@@ -146,181 +145,115 @@ type RaiseCashierResponse struct {
 raise a payment cashier，most time you will get a web url and you need to open it in webview or browse
 appKey ：merchant creat a app will get a appKey,refer to https://console.paynicorn.com/#/app/apply
 merchantSecret ：merchant's secret use it to sign your data ,refer to https://console.paynicorn.com/#/developer
-RaiseCashierRequest ：raise an online payment cashier parameters
+InitPaymentRequest ：raise an online payment cashier parameters
  */
-func RaiseCashierPayment(appKey string,merchantSecret string,request RaiseCashierRequest)(raiseCashierResponse RaiseCashierResponse ,err error){
-	raiseCashierResponse = RaiseCashierResponse{}
-	logger,_ := zap.NewProduction()
-	defer logger.Sync()
-	paynicornUrl := "https://api.paynicorn.com/trade/v3/transaction/pay"
+func InitPayment(appKey string,merchantSecret string,request InitPaymentRequest)*InitPaymentResponse{
 
-	jsonStr,err :=json.Marshal(request)
-	var base64Str string//
-	if err == nil{
-		base64Str = base64.StdEncoding.EncodeToString(jsonStr)
-	}
+	url := "https://api.paynicorn.com/trade/v3/transaction/pay"
+	jsonStr,_ :=json.Marshal(request)
+	requestBody := RequestBody{}
 
-
-	b := RequestBody{}
-
-	b.Content = base64Str
-	b.Sign = fmt.Sprintf("%x",md5.Sum([]byte(b.Content+merchantSecret)))
-	b.AppKey = appKey
-
-
+	requestBody.Content = base64.StdEncoding.EncodeToString(jsonStr)
+	requestBody.Sign = fmt.Sprintf("%x",md5.Sum([]byte(requestBody.Content+merchantSecret)))
+	requestBody.AppKey = appKey
 
 	client := &http.Client{}
-
-	jsonBytes, err := json.Marshal(b)
-	if err != nil {
-		logger.Error("json marshal meet error %v",zap.Error(err))
-	}
-
-	postRequest, err := http.NewRequest("POST", paynicornUrl, strings.NewReader(string(jsonBytes)))
-	if err != nil {
-		logger.Error("NewRequest meet error %v",zap.Error(err))
-	}
-
+	jsonBytes, _ := json.Marshal(requestBody)
+	postRequest, _ := http.NewRequest("POST", url, strings.NewReader(string(jsonBytes)))
 	postRequest.Header.Add("Content-Type", "application/json")
 
 	var buffer []byte
-	if response, err := client.Do(postRequest); err != nil {
+	if response, err := client.Do(postRequest); err == nil {
 
-	} else {
-		if buffer, err = ioutil.ReadAll(response.Body); err != nil {
-			logger.Error("post to  meet error %v",zap.Error(err))
-		}
-	}
+		if buffer, err = ioutil.ReadAll(response.Body); err == nil {
+			rsp := ResponseBody{}
+			err = json.Unmarshal(buffer, &rsp)
 
-	rsp := ResponseBody{}
-	err = json.Unmarshal(buffer, &rsp)
+			if rsp.ResponseCode == SUCCESS_CODE{
 
+				if sign := fmt.Sprintf("%x",md5.Sum([]byte(rsp.Content+merchantSecret))); sign == rsp.Sign{
 
-	if rsp.ResponseCode == SUCCESS_CODE{
-
-		if sign := fmt.Sprintf("%x",md5.Sum([]byte(rsp.Content+merchantSecret))); sign == rsp.Sign{
-
-			content, err := base64.StdEncoding.DecodeString(rsp.Content)
-			if err == nil {
-				err = json.Unmarshal([]byte(content),&raiseCashierResponse)
-				return raiseCashierResponse,err
-
-			}
-		}
-	}else{
-		raiseCashierResponse.Code = rsp.ResponseCode
-		raiseCashierResponse.Message = rsp.ResponseMessage
-	}
-	return raiseCashierResponse,err
-}
-
-
-
-
-
-
-
-
-func Postback(context *gin.Context,merchantSecret string ) (postbackResponse PostbackResponse,err error){
-
-	var req PostbackRequest
-	postbackResponse = PostbackResponse{}
-	logger,_ := zap.NewProduction()
-	defer logger.Sync()
-	if err := context.BindJSON(&req); err != nil{
-		fmt.Println("bind json failed")
-		postbackResponse.Code="204005"
-		postbackResponse.Message="bind json failed"
-		return postbackResponse,err
-	}else{
-		if s := fmt.Sprintf("%x",md5.Sum([]byte(req.Content+merchantSecret))); req.Sign == s{
-
-			c, err := base64.StdEncoding.DecodeString(req.Content)
-
-			if err == nil {
-				err = json.Unmarshal(c,postbackResponse)
-				if err == nil{
-					return postbackResponse,err
+					content, err := base64.StdEncoding.DecodeString(rsp.Content)
+					if err == nil {
+						rsp := InitPaymentResponse{}
+						err = json.Unmarshal([]byte(content),&rsp)
+						if err == nil{
+							return &rsp
+						}
+					}
 				}
 			}
-		}else{
-			fmt.Println("sign verify failed")
-			postbackResponse.Code = "204005"
-			postbackResponse.Message = "sign verify failed"
 		}
-		return postbackResponse,err
 	}
+
+	return nil
 }
 
 
-func QueryPaymentStatus(appKey string,merchantSecret string,queryTransactionRequest QueryTransactionRequest) QueryTransactionResponse{
-	queryTransactionResponse := QueryTransactionResponse{}
-	logger,_ := zap.NewProduction()
-	defer logger.Sync()
-
-	jsonStr,err := json.Marshal(queryTransactionRequest)
+func QueryPayment(appKey string,merchantSecret string,request QueryPaymentRequest) *QueryPaymentResponse {
 
 
+	url := "https://api.paynicorn.com/trade/v3/transaction/query"
+	jsonStr,_ := json.Marshal(request)
 	requestBody := RequestBody{}
 
 	requestBody.Content =  base64.StdEncoding.EncodeToString(jsonStr)
 	requestBody.Sign = fmt.Sprintf("%x",md5.Sum([]byte(requestBody.Content+merchantSecret)))
 	requestBody.AppKey = appKey
 
-
-
 	client := &http.Client{}
-
-	jsonBytes, err := json.Marshal(requestBody)
-	if err != nil {
-
-		queryTransactionResponse.Code = "204005"
-		queryTransactionResponse.Message = "query fail,retry later"
-		return queryTransactionResponse
-	}
-
-	request, err := http.NewRequest("POST", "https://api.paynicorn.com/trade/v3/transaction/query", strings.NewReader(string(jsonBytes)))
-	if err != nil {
-		queryTransactionResponse.Code = "204005"
-		queryTransactionResponse.Message = "query fail,retry later"
-		return queryTransactionResponse
-	}
-
-	request.Header.Add("Content-Type", "application/json")
+	jsonBytes, _ := json.Marshal(requestBody)
+	postRequest, _ := http.NewRequest("POST", url, strings.NewReader(string(jsonBytes)))
+	postRequest.Header.Add("Content-Type", "application/json")
 
 	var buffer []byte
-	if response, err := client.Do(request); err != nil {
-
-	} else {
+	if response, err := client.Do(postRequest); err == nil {
 		if buffer, err = ioutil.ReadAll(response.Body); err != nil {
-			queryTransactionResponse.Code = "204005"
-			queryTransactionResponse.Message = "query fail,retry later"
-			return queryTransactionResponse
-		}
-	}
+			rsp := ResponseBody{}
+			err = json.Unmarshal(buffer, &rsp)
 
-	rsp := ResponseBody{}
-	err = json.Unmarshal(buffer, &rsp)
+			if rsp.ResponseCode == SUCCESS_CODE{
 
+				if sign := fmt.Sprintf("%x",md5.Sum([]byte(rsp.Content+merchantSecret))); sign == rsp.Sign{
 
-	if rsp.ResponseCode == "000000"{
-
-		if sign := fmt.Sprintf("%x",md5.Sum([]byte(rsp.Content+merchantSecret))); sign == rsp.Sign{
-
-			content, err := base64.StdEncoding.DecodeString(rsp.Content)
-			if err == nil {
-				err = json.Unmarshal(content, &queryTransactionResponse)
-				return queryTransactionResponse
-
+					content, err := base64.StdEncoding.DecodeString(rsp.Content)
+					if err == nil {
+						rsp := QueryPaymentResponse{}
+						err = json.Unmarshal(content, &rsp)
+						if err == nil{
+							return &rsp
+						}
+					}
+				}
 			}
 		}
-	}else{
-		queryTransactionResponse.Code = rsp.ResponseCode
-		queryTransactionResponse.Message = rsp.ResponseMessage
-		return queryTransactionResponse
+	}
+	return nil
+}
+
+
+func ReceivePostback(merchantSecret string,request PostbackRequest) *PostbackInfo{
+
+	response := PostbackInfo{}
+	response.Verified = false
+
+	if s := fmt.Sprintf("%x",md5.Sum([]byte(request.Content+merchantSecret))); request.Sign == s{
+
+		c, err := base64.StdEncoding.DecodeString(request.Content)
+
+		if err == nil {
+			err = json.Unmarshal(c,response)
+			if err == nil{
+				response.Verified = true
+				return &response
+			}
+		}
 	}
 
-	return queryTransactionResponse
+	return nil
 
 }
+
+
+
 
