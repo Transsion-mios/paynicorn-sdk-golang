@@ -37,6 +37,16 @@ func main() {
 	}
 
 
+	//query support payment method from PAYNICORN
+	request2 := paynicorn.QueryMethodRequest{}
+	request2.TxnType = paynicorn.PAYMENT
+	request2.CountryCode = "NG"
+	request2.Currency = "NGN"
+	response2 := paynicorn.QueryMethod(appkey,merchantkey,request2)
+	if response2 != nil{
+		fmt.Println(response2)
+	}
+
 
 	//receive a payment status postback from PAYNICORN
 	r := gin.Default()

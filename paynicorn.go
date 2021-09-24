@@ -24,6 +24,8 @@ const (
 	AUTHPAY TxnTypeEnum = "authpay"
 
 	REFUND TxnTypeEnum = "refund"
+
+	SUBSCRIBE TxnTypeEnum = "subscribe"
 )
 
 /**
@@ -138,7 +140,28 @@ type InitPaymentResponse struct {
 
 }
 
+type MethodInfo struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+	Icon string `json:"icon"`
+	MethodType string `json:"methodType"`
+	SupportAmount []string `json:"supportAmount"`
+	MinAmount float32 `json:"minAmount"`
+	MaxAmount float32 `json:"maxAmount"`
+	Discount float32 `json:"discount"`
+}
 
+type QueryMethodRequest struct {
+	CountryCode string `json:"countryCode"`
+	Currency string `json:"currency"`
+	TxnType TxnTypeEnum `json:"txnType"`
+}
+
+type QueryMethodResponse struct {
+	Code string `json:"code"`
+	Message string `json:"message"`
+	MethodInfo []MethodInfo `json:"methodInfo"`
+}
 
 
 /**
@@ -252,6 +275,46 @@ func ReceivePostback(merchantSecret string,request PostbackRequest) *PostbackInf
 
 	return nil
 
+}
+
+func QueryMethod(appKey string,merchantSecret string,request QueryMethodRequest) *QueryMethodResponse{
+
+	url := "https://api.paynicorn.com/trade/v3/transaction/method"
+	jsonStr,_ := json.Marshal(request)
+	requestBody := RequestBody{}
+
+	requestBody.Content =  base64.StdEncoding.EncodeToString(jsonStr)
+	requestBody.Sign = fmt.Sprintf("%x",md5.Sum([]byte(requestBody.Content+merchantSecret)))
+	requestBody.AppKey = appKey
+
+	client := &http.Client{}
+	jsonBytes, _ := json.Marshal(requestBody)
+	postRequest, _ := http.NewRequest("POST", url, strings.NewReader(string(jsonBytes)))
+	postRequest.Header.Add("Content-Type", "application/json")
+
+	var buffer []byte
+	if response, err := client.Do(postRequest); err == nil {
+		if buffer, err = ioutil.ReadAll(response.Body); err == nil {
+			rsp := ResponseBody{}
+			err = json.Unmarshal(buffer, &rsp)
+
+			if rsp.ResponseCode == SUCCESS_CODE{
+
+				if sign := fmt.Sprintf("%x",md5.Sum([]byte(rsp.Content+merchantSecret))); sign == rsp.Sign{
+
+					content, err := base64.StdEncoding.DecodeString(rsp.Content)
+					if err == nil {
+						rsp := QueryMethodResponse{}
+						err = json.Unmarshal(content, &rsp)
+						if err == nil{
+							return &rsp
+						}
+					}
+				}
+			}
+		}
+	}
+	return nil
 }
 
 
